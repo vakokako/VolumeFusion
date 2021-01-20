@@ -1,0 +1,15 @@
+BasedOnStyle: Google
+AlignAfterOpenBracket: Align
+AllowAllParametersOfDeclarationOnNextLine: false
+AllowShortIfStatementsOnASingleLine: false
+BinPackArguments: true
+BinPackParameters: false
+BreakBeforeBinaryOperators: NonAssignment
+ColumnLimit: 130
+IndentWidth: 4
+SpaceAfterTemplateKeyword: false
+PenaltyBreakAssignment: 21
+AccessModifierOffset: -4
+BreakConstructorInitializers: BeforeColon
+ConstructorInitializerAllOnOneLineOrOnePerLine: false
+AlignConsecutiveAssignments: true

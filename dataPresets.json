@@ -1,0 +1,131 @@
+[
+    {
+        "bilateralD": 4,
+        "bilateralSigmaI": 75.0,
+        "bilateralSigmaS": 75.0,
+        "bilateralThreshold": 0.02500000037252903,
+        "cameraCount": 1,
+        "correspThreshDist": 0.029999999329447746,
+        "dataFolder": "/home/mvankovych/Uni/thesis/VolumeFusion/data/upperbody/data/01",
+        "depthFilesPattern": "frame-******.depth.png",
+        "depthThreshold": 1.2000000476837158,
+        "energyMinStep": 9.999999747378752e-05,
+        "energyWeightDepth": 1.0,
+        "energyWeightMReg": 2.200000047683716,
+        "frameBreak": 400,
+        "framesRangeEnd": 390,
+        "framesRangeStart": 300,
+        "icpIterations": 10,
+        "motionGraphRadius": 0.05999999865889549,
+        "motionGraphSampleDistance": 0.029999999329447746,
+        "normExclAngleFrom": 1.2999999523162842,
+        "normExclAngleTo": 1.309999942779541,
+        "tsdfCenter": [
+            0.0,
+            0.11999999731779099,
+            0.8700000047683716
+        ],
+        "tsdfDelta": 0.029999999329447746,
+        "tsdfDim": [
+            400,
+            400,
+            400
+        ],
+        "tsdfRotation": [
+            0,
+            0,
+            0
+        ],
+        "tsdfSize": [
+            1.0,
+            1.0,
+            1.0
+        ]
+    },
+    {
+        "bilateralD": 3,
+        "bilateralSigmaI": 75.0,
+        "bilateralSigmaS": 75.0,
+        "bilateralThreshold": 0.02500000037252903,
+        "cameraCount": 1,
+        "correspThreshDist": 0.019999999552965164,
+        "dataFolder": "/home/mvankovych/Uni/thesis/VolumeFusion/data/hoodie/data/01",
+        "depthFilesPattern": "frame-******.depth.png",
+        "depthThreshold": 1.2000000476837158,
+        "energyMinStep": 9.999999747378752e-05,
+        "energyWeightDepth": 1.0,
+        "energyWeightMReg": 5.199999809265137,
+        "frameBreak": 130,
+        "framesRangeEnd": 90,
+        "framesRangeStart": 0,
+        "icpIterations": 10,
+        "motionGraphRadius": 0.05999999865889549,
+        "motionGraphSampleDistance": 0.029999999329447746,
+        "normExclAngleFrom": 1.2999999523162842,
+        "normExclAngleTo": 1.309999942779541,
+        "tsdfCenter": [
+            0.0,
+            0.019999999552965164,
+            0.8700000047683716
+        ],
+        "tsdfDelta": 0.009999999776482582,
+        "tsdfDim": [
+            400,
+            400,
+            400
+        ],
+        "tsdfRotation": [
+            0,
+            0,
+            0
+        ],
+        "tsdfSize": [
+            0.75,
+            0.75,
+            0.75
+        ]
+    },
+    {
+        "bilateralD": 3,
+        "bilateralSigmaI": 75.0,
+        "bilateralSigmaS": 75.0,
+        "bilateralThreshold": 0.02500000037252903,
+        "cameraCount": 1,
+        "correspThreshDist": 0.019999999552965164,
+        "dataFolder": "/home/mvankovych/Uni/thesis/VolumeFusion/data/adventcalender/data/01",
+        "depthFilesPattern": "frame-******.depth.png",
+        "depthThreshold": 1.2000000476837158,
+        "energyMinStep": 9.999999747378752e-05,
+        "energyWeightDepth": 1.0,
+        "energyWeightMReg": 4.5,
+        "frameBreak": 150,
+        "framesRangeEnd": 200,
+        "framesRangeStart": 0,
+        "icpIterations": 8,
+        "motionGraphRadius": 0.09000000357627869,
+        "motionGraphSampleDistance": 0.029999999329447746,
+        "normExclAngleFrom": 1.2999999523162842,
+        "normExclAngleTo": 1.309999942779541,
+        "tsdfCenter": [
+            0.0,
+            0.11999999731779099,
+            0.8700000047683716
+        ],
+        "tsdfDelta": 0.009999999776482582,
+        "tsdfDim": [
+            400,
+            400,
+            400
+        ],
+        "tsdfRotation": [
+            0,
+            0,
+            0
+        ],
+        "tsdfSize": [
+            1.0,
+            1.0,
+            1.0
+        ]
+    }
+]

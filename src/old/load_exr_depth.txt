@@ -1,0 +1,10 @@
+cv::Mat load_exr_depth( std::string filename ) {
+  // load the image
+  cv::Mat depth_map = cv::imread( filename, -1 );
+  cv::cvtColor( depth_map, depth_map, CV_RGB2GRAY );
+  
+  // convert to meters
+  depth_map.convertTo( depth_map, CV_32FC1, 0.001 );
+  
+  return depth_map;
+}

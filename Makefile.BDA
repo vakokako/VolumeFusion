@@ -1,0 +1,62 @@
+
+
+PROJECT	:= VolumeFusion
+TESTTIMEOUTSEC := 1200
+CMAKEOPTIONS	?= \
+	-DBUILD_SHARED_LIBS="$(CMAKE_BUILD_TYPE_FLAGS_$(BDA_BUILD_TYPE))" \
+	-DENABLE_TEST="OFF" \
+	-DCMAKE_EXPORT_COMPILE_COMMANDS="ON"
+	# -DENABLE_TEST=$(shell $(TEST) "$(BDA_RELEASE_TYPE)" == "Debug" && echo "ON" || echo "OFF") \
+	-DENABLE_BENCHMARK=$(shell $(TEST) "$(BDA_RELEASE_TYPE)" == "Release" && echo "ON" || echo "OFF")
+
+ifeq (,$(BDASOFTDEST))
+    $(error Error *** please set the required environment variables for the BDA build)
+else
+    include $(BDASOFTDEST)/Tools/make/Makefile.BDA.inc
+endif
+
+
+.PHONY:	all debug release clean internalclean internalbuild test internaltest thisisanonexistingdependency
+
+
+default:	all
+all:	debug release
+
+debug:
+	$(MAKE) -f Makefile.BDA BDA_RELEASE_TYPE="Debug" internalbuild
+
+release:
+	$(MAKE) -f Makefile.BDA BDA_RELEASE_TYPE="Release" internalbuild
+
+internalbuild:
+	$(call uninstall_and_preinstall,$(BDATARGETDIR),$(PROJECT)) && \
+	for I in CMakeLists.txt $(MAKEFILE_LIST) ; do if test "$${I}" -nt "$(BDABUILDDIR)/$(PROJECT)/CMakeCache.txt" ; then rm -fr "$(BDABUILDDIR)/$(PROJECT)" || exit 1 ; fi || exit 1 ; done && \
+	mkdir -p "$(BDABUILDDIR)/$(PROJECT)" && \
+	cd "$(BDABUILDDIR)/$(PROJECT)/" && \
+	$(call set_path) && \
+	$(call set_compiler_flags_for_cmake) && \
+	export MKLROOT="$(PLATFORMBDATOOLTARGETDIR)" && \
+	$(BDA_CLEAN_ENV_SCRIPT) cmake --graphviz=dependency_graph.dot "$(PLATFORMSRCDIR)" \
+	    $(call set_default_cmake_options,Ninja,$(PLATFORMBDATARGETDIR),$(PLATFORMCMAKEPREFIXPATH)) \
+	    $(CMAKEOPTIONS) && \
+	perl -pi -e "s@\s*/showIncludes@@g" rules.ninja && \
+	$(BDA_CLEAN_ENV_SCRIPT) ninja -v
+
+test:
+	$(MAKE) -f Makefile.BDA BDA_RELEASE_TYPE="Debug" internaltest
+
+internaltest:
+	cd "$(BDABUILDDIR)/$(PROJECT)/" && \
+	$(call set_path) && \
+	$(call set_compiler_flags_for_cmake) && \
+	export LD_LIBRARY_PATH="$(BDATARGETDIR)/lib:$(BDATOOLTARGETDIR)/lib:$(BDATOOLTARGETDIR)/lib64:$${LD_LIBRARY_PATH}" && \
+	export GTEST_COLOR="1" && \
+	ctest --verbose --tests-regex '.*Test.*'
+
+clean:
+	$(MAKE) -f Makefile.BDA BDA_RELEASE_TYPE="Debug" internalclean
+	$(MAKE) -f Makefile.BDA BDA_RELEASE_TYPE="Release" internalclean
+
+internalclean:
+	rm -fr "$(BDABUILDDIR)/$(PROJECT)"
+

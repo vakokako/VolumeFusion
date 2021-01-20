@@ -1,0 +1,208 @@
+
+#include <thrust/count.h>
+#include <thrust/sort.h>
+#include <thrust/unique.h>
+
+#include <chrono>
+#include <iostream>
+#include <opencv2/calib3d.hpp>
+#include <thread>
+
+#include "af/Algorithms.cuh"
+#include "af/AzureReader.h"
+#include "af/BilateralFilter.cuh"
+#include "af/CameraCalibration.h"
+#include "af/CameraModel.h"
+#include "af/DebugHelper.h"
+#include "af/Settings.h"
+#include "af/DepthFrameComponent.cuh"
+#include "af/DepthReader.cuh"
+#include "af/DeviceBuffer.cuh"
+#include "af/DeviceTsdf.cuh"
+#include "af/MeshRecontructionStream.cuh"
+#include "af/TimeMap.h"
+#include "af/dataset.h"
+
+namespace af {
+
+struct CameraData {
+    af::CameraDistortion depthDistortion;
+    af::CameraModel depthCamera;
+    af::DeviceDepthImage depthFrame_d;
+    af::cuda::DepthReader<af::AzureDepthReader> depthReader;
+
+    cv::Mat depthIntrinsicsCV;
+    cv::Mat depthDistortionCV;
+    cv::Mat E;
+    cv::Mat map1;
+    cv::Mat map2;
+
+    cv::Mat undistortedDepthCV;
+
+    thrust::device_vector<Vec3f> framePointCloud_d;
+
+    CameraData(const CameraData& camera) : depthFrame_d(depthCamera), depthReader("") {
+        throw std::runtime_error("CameraData doesn't support copying, check the std::vector containing CameraData objects.");
+    }
+
+    CameraData(std::string folderName, std::string filePattern, std::pair<int, int> range)
+        : depthFrame_d(depthCamera), depthReader(folderName + "/" + filePattern),
+          depthIntrinsicsCV(3, 3, CV_32FC1, cv::Scalar(0.f)), depthDistortionCV(1, 8, CV_32FC1),
+          E(cv::Mat::eye(3, 3, cv::DataType<float>::type)) {
+        af::loadIntrinsics(folderName + "/depthIntrinsics.txt", depthCamera.depthIntrinsics);
+        af::loadCameraDistortion(folderName + "/depthDistortion.txt", depthDistortion);
+        if (!af::loadCameraTransform(folderName + "/world2camera.txt", depthCamera.transfW2C)) {
+            depthCamera.transfW2C = Mat4f::Identity();
+        }
+
+        std::cout << "depth intrinsics : " << depthCamera.depthIntrinsics << "\n";
+        std::cout << "world2camera : " << depthCamera.transfW2C << "\n";
+
+        depthCamera.intrinsics.cx = depthCamera.depthIntrinsics(0, 0);
+        depthCamera.intrinsics.cy = depthCamera.depthIntrinsics(1, 1);
+        depthCamera.intrinsics.fx = depthCamera.depthIntrinsics(0, 2);
+        depthCamera.intrinsics.fy = depthCamera.depthIntrinsics(1, 2);
+        depthCamera.distortion    = depthDistortion;
+
+        depthIntrinsicsCV.at<float>(0, 0) = depthCamera.intrinsics.cx;
+        depthIntrinsicsCV.at<float>(1, 1) = depthCamera.intrinsics.cy;
+        depthIntrinsicsCV.at<float>(0, 2) = depthCamera.intrinsics.fx;
+        depthIntrinsicsCV.at<float>(1, 2) = depthCamera.intrinsics.fy;
+        depthIntrinsicsCV.at<float>(2, 2) = 1.f;
+        depthDistortionCV.at<float>(0)    = depthCamera.distortion.k1;
+        depthDistortionCV.at<float>(1)    = depthCamera.distortion.k2;
+        depthDistortionCV.at<float>(2)    = depthCamera.distortion.p1;
+        depthDistortionCV.at<float>(3)    = depthCamera.distortion.p2;
+        depthDistortionCV.at<float>(4)    = depthCamera.distortion.k3;
+        depthDistortionCV.at<float>(5)    = depthCamera.distortion.k4;
+        depthDistortionCV.at<float>(6)    = depthCamera.distortion.k5;
+        depthDistortionCV.at<float>(7)    = depthCamera.distortion.k6;
+
+        depthReader.hostReader().setCurrentIndex(range.first - 1);
+        depthReader.readNext(depthFrame_d);
+        depthReader.hostReader().setCurrentIndex(range.first - 1);
+
+        depthCamera.width  = depthFrame_d.width();
+        depthCamera.height = depthFrame_d.height();
+    }
+
+    void processNextFrame(const af::Settings& settings) {
+        depthReader.readNext(depthFrame_d);
+
+        af::runFilterDepthKernel(depthFrame_d.dataPtr(), depthFrame_d.size(), settings.depthThreshold);
+
+        if (depthCamera.distortion.is_distorted) {
+            undistortedDepthCV = cv::Mat(depthReader.hostBuffer().size(), depthReader.hostBuffer().type());
+            cv::initUndistortRectifyMap(depthIntrinsicsCV, depthDistortionCV, E, depthIntrinsicsCV,
+                                        {undistortedDepthCV.cols, undistortedDepthCV.rows}, CV_32FC1, map1, map2);
+            cv::remap(depthReader.hostBuffer(), undistortedDepthCV, map1, map2, cv::INTER_NEAREST, CV_HAL_BORDER_CONSTANT);
+            // cv::undistort(depthReader.hostBuffer(), undistortedDepthCV, depthIntrinsicsCV, depthDistortionCV);
+
+            thrust::copy_n((float*)undistortedDepthCV.data, undistortedDepthCV.total(), depthFrame_d.begin());
+        }
+        if (settings.bilateralFiltr) {
+            thrust::device_vector<float> depthFiltered_d(depthFrame_d.size());
+            af::bilateralFilterTextureOpmShared(depthFiltered_d.data().get(), depthFrame_d.dataPtr(), depthFrame_d.height(),
+                                                depthFrame_d.width(), settings.bilateralD, settings.bilateralSigmaI,
+                                                settings.bilateralSigmaS, settings.bilateralThreshold);
+            thrust::copy(depthFiltered_d.begin(), depthFiltered_d.end(), depthFrame_d.begin());
+        }
+
+        depthFrame_d.backProject(framePointCloud_d);
+    }
+};
+
+void startMeshReconstructionStream(MeshReconstructionBuffers& buffers, const af::Settings& settings) {
+    // af::initEdgeTableDevice();
+    [[maybe_unused]] const std::size_t cBufferSizeSmall = 10000;
+    const std::size_t cBufferSizeMedium                 = 1000000;
+    const std::size_t cBufferSizeBig                    = 10000000;
+    const std::size_t cBufferSizeHuge                   = 40000000;
+
+    TimeMap timeMap;
+
+    // Setup
+
+    af::DeviceTsdf<float> tsdf_d(settings.tsdfSize, settings.tsdfDim, settings.tsdfDelta);
+    af::DeviceBufferCounted<Vec3f> meshPoints_d(cBufferSizeHuge);
+    af::DeviceBufferCounted<Vec3i> meshFaces_d(cBufferSizeBig);
+
+    std::vector<CameraData> cameras;
+    cameras.reserve(settings.cameraCount);
+    for (uint32_t i = 0; i < settings.cameraCount; ++i) {
+        cameras.emplace_back(settings.dataFolder + "/0" + std::to_string(i + 1) + "/", settings.depthFilesPattern, settings.framesRange);
+    }
+
+    thrust::device_vector<Vec3f> combinedPointCloud_d;
+
+    Eigen::AngleAxisf xAngle(static_cast<float>(settings.tsdfRotation(0)) / 180.f * M_PI, Eigen::Vector3f::UnitX());
+    Eigen::AngleAxisf yAngle(static_cast<float>(settings.tsdfRotation(1)) / 180.f * M_PI, Eigen::Vector3f::UnitY());
+    Eigen::AngleAxisf zAngle(static_cast<float>(settings.tsdfRotation(2)) / 180.f * M_PI, Eigen::Vector3f::UnitZ());
+
+    Eigen::Quaternion<float> q = xAngle * yAngle * zAngle;
+    Eigen::Matrix3f tsdfRotation = q.matrix();
+
+    // Algorithm
+
+    for (int i = settings.framesRange.first; i < settings.framesRange.second; ++i) {
+        if (!buffers._keepRunning.test_and_set()) {
+            std::cout << "Direct mesh reconstruction aborted!\n";
+            return;
+        }
+        std::cout << "processing frame " << cameras[0].depthReader.hostReader().currentIndex() + 1 << "\n";
+
+        if (i == settings.frameBreak) {
+            buffers._stepper.enable(true);
+        }
+        buffers._stepper.wait_for_step("frame start");
+        timeMap.clearTimer();
+
+        std::size_t combinedPointCloudSize = 0;
+        for (auto& camera : cameras) {
+            camera.processNextFrame(settings);
+            combinedPointCloudSize += camera.framePointCloud_d.size();
+        }
+        combinedPointCloud_d.resize(combinedPointCloudSize);
+        auto combinedInsertIt = combinedPointCloud_d.begin();
+        for (auto& camera : cameras) {
+            thrust::copy_n(camera.framePointCloud_d.begin(), camera.framePointCloud_d.size(), combinedInsertIt);
+            combinedInsertIt += camera.framePointCloud_d.size();
+        }
+
+        timeMap.addMarker("Frame processing");
+
+        tsdf_d.setCenter(settings.tsdfCenter);
+        tsdf_d.setRotation(tsdfRotation);
+        tsdf_d.initDefault();
+        tsdf_d.integrate(cameras[0].depthFrame_d);
+        timeMap.addMarker("Tsdf integration");
+
+        meshPoints_d.resetSize();
+        meshFaces_d.resetSize();
+        af::runMarchingCubesFullKernel(meshPoints_d.bufferPtr(), meshPoints_d.size_dPtr(), meshFaces_d.bufferPtr(),
+                                       meshFaces_d.size_dPtr(), tsdf_d.tsdfPtr(), tsdf_d.weightsPtr(), tsdf_d.volDim(),
+                                       tsdf_d.voxelSize(), tsdf_d.volSize(), 0);
+        meshPoints_d.syncHostSize();
+        meshFaces_d.syncHostSize();
+        timeMap.addMarker("Marching cubes mesh");
+
+        {
+            std::lock_guard<std::mutex> lock(buffers._dataLoadMutex);
+
+            buffers._pointsFrame.loadFromDevice(combinedPointCloud_d.data().get(), combinedPointCloud_d.size());
+
+            buffers._pointsMesh.loadFromDevice(meshPoints_d.bufferPtr(), meshPoints_d.size());
+            buffers._faces.loadFromDevice(meshFaces_d.bufferPtr(), meshFaces_d.size());
+        }
+
+        timeMap.addMarker("Copying to buffers");
+
+        std::cout << "combinedPointCloud_d.size() : " << combinedPointCloud_d.size() << "\n";
+        std::cout << "meshPoints_d.size() : " << meshPoints_d.size() << "\n";
+        std::cout << "meshFaces_d.size() : " << meshFaces_d.size() << "\n";
+    }
+
+    std::cout << "Time Map : \n" << timeMap << "\n";
+}
+
+}  // namespace af
